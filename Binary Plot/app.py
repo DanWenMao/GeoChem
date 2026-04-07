@@ -15,7 +15,7 @@ if uploaded_file is None:
     st.stop()
 
 try:
-    df = pd.read_csv(uploaded_file)
+    df = pd.read_csv(uploaded_file, na_values=['NA', 'na', 'N/A', 'null', 'bdl', '#DIV/0!'])
 except Exception as exc:
     st.error(f"CSV 读取失败：{exc}")
     st.stop()
@@ -113,8 +113,20 @@ if len(chosen_class_cols) >= 3:
     plot_kwargs["size_max"] = 18
     legend_parts.append(f"大小: {size_col}")
 
-fig = px.scatter(**plot_kwargs)
-fig.update_layout(legend_title_text="; ".join(legend_parts) if legend_parts else "")
+fig = px.scatter(**plot_kwargs,color_discrete_sequence=px.colors.qualitative.Plotly)
+legend_title = "; ".join(legend_parts) if legend_parts else ""
+fig.update_layout(
+    legend=dict(
+        title_text=legend_title,
+        orientation="v",
+        x=0.95,
+        y=0.95,
+        xanchor="left",
+        yanchor="top",
+        font_size=10,
+    ),
+    margin=dict(r=150)
+)
 
 st.plotly_chart(fig, use_container_width=True)
 
@@ -126,7 +138,7 @@ try:
     st.download_button(
         label=f"保存当前投图为 .{image_format}",
         data=image_bytes,
-        file_name=f"geochem_plot.{image_format}",
+        file_name=f"{x_col}_{y_col}.{image_format}",
         mime=f"image/{image_format}" if image_format in ["png", "svg"] else "application/pdf",
     )
 except Exception as exc:
