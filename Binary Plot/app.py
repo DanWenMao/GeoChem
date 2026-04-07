@@ -1,4 +1,3 @@
-# Copyright © 2026 Danwen Mao & Codex. All rights reserved.
 import pandas as pd
 import plotly.express as px
 import plotly.io as pio
@@ -6,7 +5,7 @@ import streamlit as st
 
 st.set_page_config(page_title="GeoChem 投图工具", layout="wide")
 st.title("地球化学投图（CSV）")
-st.caption("上传 CSV 后，自定义横纵坐标、多列筛选与多维分类，再导出图片。")
+st.caption("上传 CSV 后，可对原始列做四则运算，再进行多列筛选/分类并导出图片。")
 
 uploaded_file = st.file_uploader("上传 CSV 文件", type=["csv"])
 
@@ -15,7 +14,7 @@ if uploaded_file is None:
     st.stop()
 
 try:
-    df = pd.read_csv(uploaded_file, na_values=['NA', 'na', 'N/A', 'null', 'bdl', '#DIV/0!'])
+    df = pd.read_csv(uploaded_file)
 except Exception as exc:
     st.error(f"CSV 读取失败：{exc}")
     st.stop()
@@ -31,12 +30,77 @@ if len(numeric_columns) < 2:
     st.error("至少需要两列数值列用于横纵坐标绘图。")
     st.stop()
 
+
+def build_axis_series(axis_name: str, data: pd.DataFrame, number_cols: list[str]) -> tuple[pd.Series, str]:
+    mode = st.radio(
+        f"{axis_name} 数据来源",
+        options=["原始列", "四则运算"],
+        horizontal=True,
+        key=f"{axis_name}_mode",
+    )
+
+    if mode == "原始列":
+        col = st.selectbox(f"{axis_name} 列", options=number_cols, key=f"{axis_name}_raw_col")
+        return pd.to_numeric(data[col], errors="coerce"), col
+    
+    left_mode = st.radio(
+        f"{axis_name} 左操作数类型",
+        options=["列", "常数"],
+        horizontal=True,
+        key=f"{axis_name}_left_mode",
+    )
+
+    if left_mode == "列":
+        left_col = st.selectbox(f"{axis_name} 左操作数列", options=number_cols, key=f"{axis_name}_left_col")
+        left_series = pd.to_numeric(data[left_col], errors="coerce")
+        left_label = left_col
+    else:
+        left_const = st.number_input(f"{axis_name} 左操作数常数", value=1.0, key=f"{axis_name}_left_const")
+        left_series = pd.Series([left_const] * len(data), index=data.index, dtype="float64")
+        left_label = str(left_const)
+
+    # left_col = st.selectbox(f"{axis_name} 左操作数列", options=number_cols, key=f"{axis_name}_left")
+    operator = st.selectbox(f"{axis_name} 运算符", options=["+", "-", "*", "/"], key=f"{axis_name}_op")
+
+    right_mode = st.radio(
+        f"{axis_name} 右操作数类型",
+        options=["列", "常数"],
+        horizontal=True,
+        key=f"{axis_name}_right_mode",
+    )
+
+    # left_series = pd.to_numeric(data[left_col], errors="coerce")
+
+    if right_mode == "列":
+        right_col = st.selectbox(f"{axis_name} 右操作数列", options=number_cols, key=f"{axis_name}_right_col")
+        right_series = pd.to_numeric(data[right_col], errors="coerce")
+        right_label = right_col
+    else:
+        right_const = st.number_input(f"{axis_name} 右操作数常数", value=1.0, key=f"{axis_name}_right_const")
+        right_series = pd.Series([right_const] * len(data), index=data.index, dtype="float64")
+        right_label = str(right_const)
+
+    if operator == "+":
+        result = left_series + right_series
+    elif operator == "-":
+        result = left_series - right_series
+    elif operator == "*":
+        result = left_series * right_series
+    else:
+        safe_denominator = right_series.mask(right_series == 0)
+        result = left_series / safe_denominator
+
+    label = f"({left_label} {operator} {right_label})"
+    return result, label
+
+
 filter_configs = []
 with st.sidebar:
     st.header("绘图设置")
 
-    x_col = st.selectbox("横坐标（X）", options=numeric_columns, index=0)
-    y_col = st.selectbox("纵坐标（Y）", options=numeric_columns, index=1 if len(numeric_columns) > 1 else 0)
+    st.subheader("横纵坐标")
+    x_series, x_label = build_axis_series("X", df, numeric_columns)
+    y_series, y_label = build_axis_series("Y", df, numeric_columns)
 
     st.subheader("多列筛选")
     filter_count = st.number_input("筛选列数量", min_value=0, max_value=min(8, len(columns)), value=0, step=1)
@@ -66,14 +130,19 @@ with st.sidebar:
         chosen_class_cols.append(class_col)
 
 plot_df = df.copy()
+plot_df["__x__"] = x_series
+plot_df["__y__"] = y_series
+
 for filter_col, selected_values in filter_configs:
     if len(selected_values) == 0:
         plot_df = plot_df.iloc[0:0]
         break
     plot_df = plot_df[plot_df[filter_col].astype(str).isin(selected_values)]
 
+plot_df = plot_df.dropna(subset=["__x__", "__y__"])
+
 if plot_df.empty:
-    st.warning("当前筛选条件下没有数据。请调整筛选条件。")
+    st.warning("当前筛选或运算结果下没有可绘图数据。请调整条件。")
     st.stop()
 
 st.success(f"当前满足条件并绘制的点数：{len(plot_df)}")
@@ -86,10 +155,11 @@ hover_columns = [
 
 plot_kwargs = {
     "data_frame": plot_df,
-    "x": x_col,
-    "y": y_col,
+    "x": "__x__",
+    "y": "__y__",
+    "labels": {"__x__": x_label, "__y__": y_label},
     "hover_data": hover_columns,
-    "title": f"{y_col} vs {x_col}",
+    "title": f"{y_label} vs {x_label}",
 }
 
 legend_parts = []
@@ -138,7 +208,7 @@ try:
     st.download_button(
         label=f"保存当前投图为 .{image_format}",
         data=image_bytes,
-        file_name=f"{x_col}_{y_col}.{image_format}",
+        file_name=f"{x_label}_{y_label}.{image_format}",
         mime=f"image/{image_format}" if image_format in ["png", "svg"] else "application/pdf",
     )
 except Exception as exc:
