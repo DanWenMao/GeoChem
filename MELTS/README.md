@@ -49,9 +49,7 @@ Index,T (C),P (kbars),log(10) f O2,mass (gm),rho (gm/cc),wt% SiO2,wt% TiO2,wt% A
 4. 处理所有Initial water下的mineral.tbl
 5. 以岩浆的质量分数F为横坐标，绘制矿物堆叠面积图，示例代码：
 
-`
-
-minerals_order = [c for c in colors.keys() if c in df_pivot.columns]
+`minerals_order = [c for c in colors.keys() if c in df_pivot.columns]
 ax1.stackplot(df_pivot.index, [df_pivot[m] for m in minerals_order],
               colors=[colors[m] for m in minerals_order],
               labels=minerals_order,
@@ -64,6 +62,4 @@ ax1.set_ylim(0, 100)
 ax1.tick_params(axis='y', colors='black')
 ax1.spines['top'].set_visible(False)
 ax1.spines['right'].set_visible(False)
-ax1.tick_params(direction='out', length=4, width=1)
-
-`
+ax1.tick_params(direction='out', length=4, width=1)`
